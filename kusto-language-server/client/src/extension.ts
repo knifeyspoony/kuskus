@@ -8,6 +8,7 @@ import { workspace, ExtensionContext, commands, window } from "vscode";
 import * as clipboardy from "clipboardy";
 import * as open from "open";
 
+import * as metadata from "../../shared/dist/src/clusterMetadata";
 import {
   LanguageClient,
   LanguageClientOptions,
@@ -58,9 +59,24 @@ export function activate(context: ExtensionContext) {
   // Start the client. This will also launch the server
   client.start();
 
+  // Check if we have any clusters in our configuration
+  const clusterConnections: metadata.ClusterConnection[] = workspace.getConfiguration("[Kuskus] Kusto").get("clusters");
+  
   client.onDidChangeState((listener) => {
     if (listener.newState == State.Running) {
       window.showInformationMessage("Kuskus loaded!");
+
+      client.onNotification(
+        "kuskus.loadSchemas.complete.success",
+        ({
+          clusters
+        }: {
+          clusters: metadata.ClusterMetadata[];
+        }) => {
+          if (clusters.length > 0) {
+            window.showInformationMessage("Schema load complete!");
+          }
+      });
 
       client.onRequest(
         "kuskus.loadSymbols.auth",
@@ -161,6 +177,13 @@ export function activate(context: ExtensionContext) {
           );
         },
       );
+    }
+  });
+  
+  client.onReady().then(() => {
+    // If we have configuration clusters, ask the server to load their schemas
+    if (clusterConnections) {
+      client.sendRequest("kuskus.loadSchemas", clusterConnections);
     }
   });
 }

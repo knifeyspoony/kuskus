@@ -1,6 +1,6 @@
-import "../node_modules/@kusto/language-service-next/bridge";
-import "../node_modules/@kusto/language-service-next/Kusto.Language.Bridge";
-
+import "@kusto/language-service-next/bridge";
+import "@kusto/language-service-next/Kusto.Language.Bridge";
+import * as metadata from "../../shared/dist/src/clusterMetadata";
 import {
   createConnection,
   TextDocuments,
@@ -20,12 +20,19 @@ import { TextDocument } from "vscode-languageserver-textdocument";
 
 import {
   getClient as getKustoClient,
-  TokenResponse,
   getFirstOrDefaultClient,
 } from "./kustoConnection";
 import { getSymbolsOnCluster, getSymbolsOnTable } from "./kustoSymbols";
 import { formatCodeScript } from "./kustoFormat";
 import { getVSCodeCompletionItemsAtPosition } from "./kustoCompletion";
+
+const showSchemaCommand = `
+  .show databases schema
+  | where isnotempty(TableName) and isnotempty(ColumnName)
+  | order by ColumnName asc
+  | extend Column=pack_array("Name", ColumnName, "Type", ColumnType)
+  | summarize Columns=make_list(Column) by DatabaseName, TableName
+`
 
 // Create a connection for the server. The connection uses Node's IPC as a transport.
 // Also include all preview / proposed LSP features.
@@ -97,6 +104,53 @@ connection.onInitialized(async () => {
   }
 });
 
+connection.onRequest("kuskus.loadSchemas", async (clusterConnections: metadata.ClusterConnection[]) => {
+    let clusters: metadata.ClusterMetadata[] = [];
+    for (const clusterConnection of clusterConnections) {
+      const kustoClient = getKustoClient(clusterConnection.url);
+      if (!kustoClient) {
+        connection.sendNotification("kuskus.loadSchemas.complete.error", {
+          clusterUri: clusterConnection.url,
+          errorMessage: "Failed to get Kusto client",
+        });
+        return;
+      }
+      kustoClient
+        .execute(null, showSchemaCommand)
+        .then((results) => {
+          if (!results || !results.primaryResults || !results.primaryResults[0]) {
+            connection.sendNotification("kuskus.loadSchemas.complete.error", {
+              clusterUri: clusterConnection.url,
+              errorMessage: "Cluster returned no results",
+            });
+            return;
+          }
+          let clusterMetadata = new metadata.ClusterMetadata(clusterConnection);
+          const primaryResults = results.primaryResults[0];
+          for (let i = 0; i < primaryResults._rows.length; i++) {
+            const databaseName = primaryResults[i].DatabaseName;
+            const tableName = primaryResults[i].TableName;
+            const columns = primaryResults[i].Columns;
+            if (!databaseName || !tableName || !columns) {
+              continue;
+            }
+            // Each row has DatabaseName, TableName, and an array, Columns, which is an array of Column objects with ColumnName and ColumnType
+            let database = clusterMetadata.databases.find((db) => db.name === databaseName);
+            if (!database) {
+              database = new metadata.ClusterDatabase(databaseName);
+              clusterMetadata.databases.push(database);
+            }
+            let tableColumns = columns.map((column: any) => new metadata.ClusterColumn(column.Name, column.Type));
+            database.tables.push(new metadata.ClusterTable(tableName, tableColumns));
+          }
+          clusters.push(clusterMetadata);
+        });
+    }
+    connection.sendNotification("kuskus.loadSchemas.complete.success", {
+      clusters: clusters,
+    });
+  });
+
 connection.onRequest(
   "kuskus.loadSymbols",
   async ({
@@ -108,19 +162,16 @@ connection.onRequest(
     tenantId: string | undefined;
     database: string;
   }) => {
-    const kustoClient = getKustoClient(
-      clusterUri,
-      tenantId,
-      (tokenResponse: TokenResponse) => {
-        connection.sendRequest("kuskus.loadSymbols.auth", {
-          clusterUri,
-          tenantId,
-          database,
-          verificationUrl: tokenResponse.verificationUrl,
-          verificationCode: tokenResponse.userCode,
-        });
-      },
-    );
+    const kustoClient = getKustoClient(clusterUri);
+    if (!kustoClient) {
+      connection.sendNotification("kuskus.loadSymbols.auth.complete.error", {
+        clusterUri,
+        tenantId,
+        database,
+        errorMessage: "Failed to get Kusto client",
+      });
+      return;
+    }
 
     try {
       kustoGlobalState = await getSymbolsOnCluster(kustoClient, database);
@@ -159,6 +210,15 @@ connection.onRequest("kuskus.loadTable", async (tableName: string) => {
   let clusterUri: string = "";
   let kustoClient = null;
   ({ clusterUri, kustoClient } = getFirstOrDefaultClient());
+
+  if (!kustoClient) {
+    connection.sendNotification("kuskus.loadSymbols.auth.complete.error", {
+      clusterUri,
+      database: "",
+      errorMessage: "Failed to get Kusto client",
+    });
+    return;
+  }
 
   if (!kustoGlobalState || !kustoGlobalState.Database) {
     connection.sendNotification("kuskus.loadSymbols.auth.complete.error", {

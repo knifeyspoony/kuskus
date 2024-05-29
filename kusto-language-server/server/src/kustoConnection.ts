@@ -11,31 +11,15 @@ export interface TokenResponse {
 // Resource string to kusto client. The azure-kusto-data package
 // does not have typescript support.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const clients: Map<string, any> = new Map();
+const clients: Map<string, KustoClient> = new Map();
 
 export function getClient(
   clusterUri: string,
-  tenantId: string | undefined,
-  authCallback: (tokenResponse: TokenResponse) => void,
-) {
+): KustoClient | undefined {
   if (clients.has(clusterUri)) {
     return clients.get(clusterUri);
   } else {
-    // If tenant id is empty in the input, consider it undefined when building the connection string
-    if (!tenantId) {
-      tenantId = undefined;
-    }
-
-    const kcsb = KustoConnectionStringBuilder.withAadDeviceAuthentication(
-      clusterUri,
-      tenantId,
-      (deviceCodeInfo) => {
-        authCallback({
-          verificationUrl: deviceCodeInfo.verificationUri,
-          userCode: deviceCodeInfo.userCode,
-        });
-      },
-    );
+    const kcsb = KustoConnectionStringBuilder.withUserPrompt(clusterUri);
     const kustoClient = new KustoClient(kcsb);
     clients.set(clusterUri, kustoClient);
     return kustoClient;
@@ -45,7 +29,7 @@ export function getClient(
 export function getFirstOrDefaultClient(): {
   clusterUri: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  kustoClient: any;
+  kustoClient: KustoClient | undefined;
 } {
   if (clients.size > 0) {
     const key = clients.keys().next().value;
@@ -56,6 +40,6 @@ export function getFirstOrDefaultClient(): {
   }
   return {
     clusterUri: "none",
-    kustoClient: null,
+    kustoClient: undefined,
   };
 }

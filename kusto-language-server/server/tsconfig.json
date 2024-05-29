@@ -10,6 +10,8 @@
     "rootDir": "src",
     "types": ["@kusto/language-service-next"]
   },
-  "include": ["src"],
-  "exclude": ["node_modules", ".vscode-test"]
+  "include": ["src", "../shared/dist"],
+  "exclude": ["node_modules", ".vscode-test"],
+  "references": [
+    { "path": "../shared" }]
 }

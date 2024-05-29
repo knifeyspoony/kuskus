@@ -6,6 +6,9 @@
     "rootDir": "src",
     "sourceMap": true
   },
-  "include": ["src"],
-  "exclude": ["node_modules", ".vscode-test"]
+  "include": ["src", "../shared/dist"],
+  "exclude": ["node_modules", ".vscode-test"],
+  "references": [
+    {"path": "../shared"}
+  ]
 }

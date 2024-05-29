@@ -60,6 +60,24 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Whether diagnostics are enabled or not (red squiggly underlines, Problems tab)"
+                },
+                "kuskusLanguageServer.clusters": {
+                    "scope": "window",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": { 
+                                "type": "string",
+                                "maxLength": 32
+                            },
+                            "url": {
+                                "type": "string",
+                                "format": "uri"
+                            }
+                        }
+                    },
+                    "description": "Kusto clusters"
                 }
             }
         },
@@ -68,7 +86,24 @@
                 "command": "kuskus.loadSymbols",
                 "title": "[Kuskus] Load Symbols from Cluster"
             }
-        ]
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "kuskus",
+                    "title": "Kuskus",
+                    "icon": "./resources/kusto.png"
+                }
+            ]
+        },
+        "views": {
+            "kuskus": [
+                {
+                    "id": "kuskus-connections",
+                    "name": "Connections"
+                }
+            ]
+        }
     },
     "scripts": {
         "lint": "cd client && npm run lint && cd ../server && npm run lint && cd ..",
